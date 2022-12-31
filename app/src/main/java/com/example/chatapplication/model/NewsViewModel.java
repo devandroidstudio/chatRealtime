@@ -15,4 +15,5 @@ public class NewsViewModel extends ViewModel {
     public void setListNews(List<News> list){
         this.listNews.setValue(list);
     }
+
 }

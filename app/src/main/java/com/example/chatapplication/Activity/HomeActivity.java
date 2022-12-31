@@ -9,11 +9,16 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.viewpager2.widget.ViewPager2;
 
+import android.app.Dialog;
 import android.content.DialogInterface;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -41,6 +46,7 @@ import com.google.android.material.navigation.NavigationBarView;
 import com.google.android.material.navigation.NavigationView;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.UserInfo;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
@@ -52,6 +58,7 @@ import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.squareup.picasso.Picasso;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -72,6 +79,7 @@ public class HomeActivity extends BaseActivity {
     private static List<News> listNews;
     private static final List<String> listImageCurrent = new ArrayList<>();
     private static Boolean isExits = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -101,7 +109,9 @@ public class HomeActivity extends BaseActivity {
                 switch (item.getItemId()){
                     case R.id.nav_my_profile:
                         break;
-
+                    case R.id.nav_qrCode:
+                        showQrCodeDialog();
+                        break;
                 }
                 binding.drawerLayoutHome.closeDrawer(GravityCompat.START);
                 return true;
@@ -112,6 +122,21 @@ public class HomeActivity extends BaseActivity {
         animateNavigationDrawer();
 
     }
+
+    private void showQrCodeDialog() {
+        final Dialog dialogQrCode = new Dialog(this);
+        dialogQrCode.setContentView(R.layout.layout_dialog_qrcode);
+        Window window = dialogQrCode.getWindow();
+        window.setLayout(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.WRAP_CONTENT);
+        window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        dialogQrCode.setCancelable(true);
+        dialogQrCode.findViewById(R.id.btn_close_dialog_qrCode).setOnClickListener(v ->{
+            dialogQrCode.dismiss();
+        });
+        ImageView imageView = dialogQrCode.findViewById(R.id.image_qrCode);
+        dialogQrCode.show();
+    }
+
     private void animateNavigationDrawer() {
         binding.drawerLayoutHome.setScrimColor(getResources().getColor(R.color.purple_200));
         binding.drawerLayoutHome.addDrawerListener(new DrawerLayout.DrawerListener() {
@@ -146,17 +171,17 @@ public class HomeActivity extends BaseActivity {
         TextView txtName =  binding.navViewHome.getHeaderView(0).findViewById(R.id.textView_name_user_nav_header);
         TextView txtEmail =  binding.navViewHome.getHeaderView(0).findViewById(R.id.textView_email_user_nav_header);
         CircleImageView imageView = binding.navViewHome.getHeaderView(0).findViewById(R.id.image_user_header);
-        txtName.setText(user.getDisplayName());
-        txtEmail.setText(user.getEmail());
-
-
-        String resultImage = "";
-        if (user.getPhotoUrl() == null){
-            resultImage = preferenceManager.getString(Constants.KEY_IMAGE);
-        }else {
-            resultImage = user.getPhotoUrl().toString();
+        if (user != null) {
+            for (UserInfo profile : user.getProviderData()) {
+                txtName.setText(profile.getDisplayName());
+                txtEmail.setText(profile.getEmail());
+                AccountViewModel.url.set(profile.getPhotoUrl()== null ? preferenceManager.getString(Constants.KEY_IMAGE) : profile.getPhotoUrl().toString());
+                AccountViewModel.displayName.set(profile.getDisplayName());
+                AccountViewModel.email.set(profile.getEmail());
+            }
         }
-        Picasso.get().load(resultImage).placeholder(R.drawable.ic_baseline_person_pin_24).error(R.drawable.cool_background).into(imageView);
+
+        Picasso.get().load(AccountViewModel.url.get()).placeholder(R.drawable.ic_baseline_person_pin_24).error(R.drawable.cool_background).into(imageView);
         viewModel = new ViewModelProvider(this).get(UserViewModel.class);
         newsViewModel = new ViewModelProvider(this).get(NewsViewModel.class);
         reference = FirebaseDatabase.getInstance().getReference("News");
@@ -214,6 +239,7 @@ public class HomeActivity extends BaseActivity {
 
             }
         });
+
     }
     @NonNull
     private List<Fragment> getListFragment(){
@@ -238,7 +264,6 @@ public class HomeActivity extends BaseActivity {
                                 list.add(user);
                             }
                             viewModel.setListUsers(list.stream().filter(x-> !Objects.equals(x.userId, currentUserId)).collect(Collectors.toList()));
-                            getListNews(list);
                         }
                     }
                 }).addOnFailureListener(new OnFailureListener() {
@@ -271,42 +296,6 @@ public class HomeActivity extends BaseActivity {
                 .addOnFailureListener(x-> Toast.makeText(this, "Unable to update token", Toast.LENGTH_SHORT).show());
     }
 
-    private void getListNews(@NonNull List<User> list){
-        for (User users : list) {
-            reference.child(users.userId).addValueEventListener(new ValueEventListener() {
-                @Override
-                public void onDataChange(@NonNull DataSnapshot snapshot) {
-                    if (snapshot.exists()){
-                        if (listNews != null){
-                            listNews.clear();
-                        }
-                        for (DataSnapshot postSnapshot : snapshot.getChildren()){
-                            News news = postSnapshot.getValue(News.class);
-                            listNews.add(news);
-                        }
-                        listImageCurrent.add(Objects.requireNonNull(FirebaseAuth.getInstance().getCurrentUser()).getPhotoUrl() == null ? preferenceManager.getString(Constants.KEY_IMAGE) : Objects.requireNonNull(FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl()).toString());
-                        listNews.add(0,new News(listImageCurrent,"https://cdn-icons-png.flaticon.com/512/3024/3024515.png",FirebaseAuth.getInstance().getCurrentUser().getDisplayName()));
-                        newsViewModel.setListNews(listNews);
-                        isExits = true;
-                    }
-                    else {
-                        isExits = false;
-                    }
-                }
-
-                @Override
-                public void onCancelled(@NonNull DatabaseError error) {
-                    Toast.makeText(HomeActivity.this, error.getMessage(), Toast.LENGTH_SHORT).show();
-                }
-            });
-        }
-        if (!isExits){
-            listImageCurrent.add(Objects.requireNonNull(FirebaseAuth.getInstance().getCurrentUser()).getPhotoUrl() == null ? preferenceManager.getString(Constants.KEY_IMAGE) : Objects.requireNonNull(FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl()).toString());
-            listNews.add(0,new News(listImageCurrent,"https://cdn-icons-png.flaticon.com/512/3024/3024515.png",FirebaseAuth.getInstance().getCurrentUser().getDisplayName()));
-            newsViewModel.setListNews(listNews);
-        }
-
-    }
     private void addDataFirestore(){
         FirebaseFirestore database = FirebaseFirestore.getInstance();
         HashMap<String,Object> data = new HashMap<>();

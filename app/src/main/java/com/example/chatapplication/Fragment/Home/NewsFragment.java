@@ -35,19 +35,25 @@ import com.example.chatapplication.Listener.ICallBackNewsListener;
 import com.example.chatapplication.R;
 import com.example.chatapplication.Transform.ZoomOutPageTransformer;
 import com.example.chatapplication.Utils.Constants;
+import com.example.chatapplication.Utils.FileExtension;
 import com.example.chatapplication.Utils.PreferenceManager;
 import com.example.chatapplication.Utils.ShowCameraGallery;
 import com.example.chatapplication.databinding.FragmentNewsBinding;
+
+import com.example.chatapplication.model.AccountViewModel;
 import com.example.chatapplication.model.News;
+
 import com.example.chatapplication.model.NewsViewModel;
 
-import com.example.chatapplication.model.UserViewModel;
+
 import com.github.dhaval2404.imagepicker.ImagePicker;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
@@ -65,6 +71,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class NewsFragment extends Fragment implements ICallBackNewsListener {
 
@@ -81,11 +88,14 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
     private static List<Uri> list;
     private DatabaseReference reference;
     private StorageReference storageReference;
-    private static List<String> uris, listImageCurrent;
+    private static List<String> uris, listImageCurrent, listImageCurrent2;
     private ProgressDialog progressDialog;
     private String date;
     private  NewsAdapter adapter;
     private static boolean isExits = false;
+    private static List<News> newsList;
+    private static String strNews = "";
+    private FirebaseUser user;
     private final ActivityResultLauncher<Intent> startForProfileImageResult = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), new ActivityResultCallback<ActivityResult>() {
         @Override
         public void onActivityResult(ActivityResult result) {
@@ -124,19 +134,9 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
         list = new ArrayList<>();
         uris = new ArrayList<>();
         listImageCurrent = new ArrayList<>();
+        listImageCurrent2 = new ArrayList<>();
+        newsList = new ArrayList<>();
         newsViewModel = new ViewModelProvider(requireActivity()).get(NewsViewModel.class);
-
-        newsViewModel.getListNews().observe(getViewLifecycleOwner(),item->{
-            if (item.size() == 0){
-                loading(true);
-            }else {
-                loading(false);
-                binding.rcvNews.setVisibility(View.VISIBLE);
-                adapter = new NewsAdapter(item, getContext(), NewsFragment.this);
-                binding.rcvNews.setAdapter(adapter);
-                adapter.notifyItemRangeInserted(0,item.size());
-            }
-        });
         progressDialog = new ProgressDialog(requireContext());
         progressDialog.setMessage("Uploading...");
         SimpleDateFormat format = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
@@ -146,8 +146,46 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
         binding.rcvNews.setLayoutManager(new GridLayoutManager(requireContext(),2, LinearLayoutManager.VERTICAL,false));
         binding.rcvNews.setItemAnimator(new DefaultItemAnimator());
         binding.rcvNews.setHasFixedSize(true);
+        AccountViewModel.url.set(FirebaseAuth.getInstance().getCurrentUser().getPhotoUrl().toString());
 
         return binding.getRoot();
+    }
+    private void getData(){
+
+        reference.child(LocalDate.now().toString()).addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                if (newsList != null){
+                    newsList.clear();
+                }
+                for (DataSnapshot postSnapshot : snapshot.getChildren()){
+                    News news = postSnapshot.getValue(News.class);
+                    if (news != null && news.userId.equals(preferenceManager.getString(Constants.KEY_USER_ID))){
+                        strNews = postSnapshot.getKey();
+
+                    }
+                    newsList.add(news);
+                }
+                if (newsList.size() == 0){
+                    loading(true);
+                }else {
+                    loading(false);
+                    binding.rcvNews.setVisibility(View.VISIBLE);
+                    listImageCurrent2.add(Objects.requireNonNull(FirebaseAuth.getInstance().getCurrentUser()).getPhotoUrl() == null ? preferenceManager.getString(Constants.KEY_IMAGE) : AccountViewModel.url.get());
+                    newsList.add(0,new News(listImageCurrent2,"https://cdn-icons-png.flaticon.com/512/3024/3024515.png","Add a news"));
+                    adapter = new NewsAdapter(newsList, getContext(), NewsFragment.this);
+                    binding.rcvNews.setAdapter(adapter);
+                    adapter.notifyItemRangeInserted(0,newsList.size());
+                }
+
+            }
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+                Toast.makeText(requireContext(), error.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+
+
     }
     private void loading(@NonNull Boolean isLoading){
         if (isLoading){
@@ -176,11 +214,7 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
         intent.setData(MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
         startForProfileImageResult.launch(intent);
     }
-    public String getFileExtension(Uri uri) {
-        ContentResolver cr = requireActivity().getContentResolver();
-        MimeTypeMap mime = MimeTypeMap.getSingleton();
-        return mime.getExtensionFromMimeType(cr.getType(uri));
-    }
+
     private void showDialogResult(List<Uri> list){
         View viewDialog = LayoutInflater.from(requireContext()).inflate(R.layout.layout_bottom_sheet_upload_image,null);
         final BottomSheetDialog bottomSheetDialog = new BottomSheetDialog(requireContext(),R.style.BottomSheetTheme);
@@ -205,8 +239,8 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
         viewDialog.findViewById(R.id.btn_upload_image).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-
-                reference.child(preferenceManager.getString(Constants.KEY_USER_ID)).child(LocalDate.now().toString()).addListenerForSingleValueEvent(new ValueEventListener() {
+                System.out.println(strNews);
+                reference.child(LocalDate.now().toString()).child(strNews).addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override
                     public void onDataChange(@NonNull DataSnapshot snapshot) {
                         if (snapshot.exists()){
@@ -228,7 +262,7 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
 
                 progressDialog.show();
                 for (int i = 0; i < list.size(); i++) {
-                    final StorageReference fileRef = storageReference.child(System.currentTimeMillis()+"."+getFileExtension(list.get(i)));
+                    final StorageReference fileRef = storageReference.child(System.currentTimeMillis()+"."+ FileExtension.getFileExtension(list.get(i),requireActivity()));
                     fileRef.putFile(list.get(i)).addOnCompleteListener(new OnCompleteListener<UploadTask.TaskSnapshot>() {
                         @Override
                         public void onComplete(@NonNull Task<UploadTask.TaskSnapshot> task) {
@@ -239,11 +273,12 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
                                         uris.add(String.valueOf(uri));
                                         if (uris.size() == list.size()){
                                             listImageCurrent.addAll(uris);
+                                            System.out.println(listImageCurrent.toString());
                                             if (isExits){
                                                 Map<String,Object> result = new HashMap<>();
                                                 result.put("resource",listImageCurrent);
                                                 result.put("date",date);
-                                                reference.child(preferenceManager.getString(Constants.KEY_USER_ID)).child(LocalDate.now().toString()).updateChildren(result, new DatabaseReference.CompletionListener() {
+                                                reference.child(LocalDate.now().toString()).child(strNews).updateChildren(result, new DatabaseReference.CompletionListener() {
                                                     @Override
                                                     public void onComplete(@Nullable DatabaseError error, @NonNull DatabaseReference ref) {
                                                         Toast.makeText(requireContext(), "Success", Toast.LENGTH_SHORT).show();
@@ -253,9 +288,9 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
                                                     }
                                                 });
                                             }else {
-                                                News news = new News(uris, preferenceManager.getString(Constants.KEY_IMAGE), preferenceManager.getString(Constants.KEY_NAME), date);
+                                                News news = new News(uris,AccountViewModel.url.get(), preferenceManager.getString(Constants.KEY_NAME), date, preferenceManager.getString(Constants.KEY_USER_ID));
                                                 reference.keepSynced(true);
-                                                reference.child(preferenceManager.getString(Constants.KEY_USER_ID)).child(LocalDate.now().toString()).setValue(news).addOnCompleteListener(new OnCompleteListener<Void>() {
+                                                reference.child(LocalDate.now().toString()).push().setValue(news).addOnCompleteListener(new OnCompleteListener<Void>() {
                                                     @Override
                                                     public void onComplete(@NonNull Task<Void> task) {
                                                         if (task.isSuccessful()) {
@@ -301,4 +336,9 @@ public class NewsFragment extends Fragment implements ICallBackNewsListener {
         });
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        getData();
+    }
 }
