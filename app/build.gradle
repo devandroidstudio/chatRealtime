@@ -29,6 +29,7 @@ android {
     buildFeatures{
         dataBinding true
     }
+    namespace 'com.example.chatapplication'
 }
 
 dependencies {
@@ -56,4 +57,5 @@ dependencies {
     implementation 'io.github.ParkSangGwon:tedpermission-normal:3.3.0'
     implementation 'com.github.dhaval2404:imagepicker:2.1'
     implementation 'com.github.chrisbanes:PhotoView:2.3.0'
+    implementation 'com.github.androidmads:QRGenerator:1.0.1'
 }
